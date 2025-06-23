@@ -1,4 +1,4 @@
-## Alphabetfuscation: Convert your shellcode into an ASCII string
+## Alphabetfuscation v2: Convert your shellcode into an ASCII string favoring entropy reduction
 
 </br>
 
@@ -17,9 +17,10 @@
 
 **1. Encoding:**
 
-* For each raw byte, we determine a random alphabetical offset (A–Z or a–z) via `RDRAND`.
+* For each raw byte, we determine a random capitalized alphabetical offset (A–Z) via `RDRAND`.
 * Add offset to the byte, rotate the result by 4 bits, then XOR with `0xA5` (which is user-adjustable). 
-* If the resulting byte is not within the ASCII alpha ranges (A–Z or a–z), another offset is chosen.
+* If the resulting byte is not within the ASCII alpha ranges (A–Z), another offset is chosen.
+
 
 </br>
 
@@ -29,9 +30,22 @@ If `SHUFFLE_ORDER` is defined, the input shellcode is preprocessed by grouping i
 
 </br>
 
-**3. Decoding:**
+
+**3. Space Injection Mode:**
+
+If `INJECT_SPACES` is defined, the encoded iterates through the encoded shellcode and injects space characters between some alphabetical letters to reduce output uniformity and evade pattern-based detection. This mode uses:
+
+- `MIN_SPACE_INJECT` – Minimum number of letters to emit before a space **might** be inserted.
+- `MAX_SPACE_INJECT` – Maximum number of letters to emit before a new injection decision is made.
+
+Once the randomized interval threshold is met, there is a **75% chance** of inserting a space (i.e., only 1 in 4 intervals skip the space). This random spacing helps obfuscate the encoded string and mimic natural-language structure to further evade static detection heuristics.
+
+</br>
+
+**4. Decoding:**
 
 * Split each output word into offset (high byte) and transformed (low byte).
+* If space injection mode was used during encoding, `StripSpaces` is called to strip all space characters from the encoded shellcode before any decoding.
 * Reverse operations: undo XOR, rotate right by 4, then subtract the offset to recover the original byte.
 * If Shuffle mode was used during encoding, inverse reordering is applied at the end to fully restore the payload.
 
@@ -40,13 +54,17 @@ If `SHUFFLE_ORDER` is defined, the input shellcode is preprocessed by grouping i
 
 ## Output Example
 
-Even with the same input shellcode and XOR key, the output changes across runs due to per-byte randomization:
+The following output is the result of the `INJECT_SPACES` mode being defined (output is truncated due to its size):
 
-![image](https://github.com/user-attachments/assets/46afcaff-3a53-45aa-afb5-ed0ad03d3065)
+![image](https://github.com/user-attachments/assets/66d6e85c-bcdb-4971-87b7-f13c3ebd3d7e)
+
+
+This lowers the entropy from `5.92` to `4.21`, as shown in the image below:
+
+![image](https://github.com/user-attachments/assets/3fa13d2e-d84e-415a-9994-0c173478fd4f)
 
 
 </br>
-
 
 
 ### Encoding Function
@@ -92,10 +110,7 @@ BOOL AlphabaticalShellcodeDecode(
 
 ## Downside
 
-The encoded output is **2 times larger** than the input (since each byte is transformed into a 2-byte `WORD`).
-
-
-
+The encoded output is at least **2 times larger** than the input (since each byte is transformed into a 2-byte `WORD`). If `INJECT_SPACES` is enabled, the size increases further due to randomly inserted space characters, resulting in an output that is **more than double** the original size.
 
 
 
