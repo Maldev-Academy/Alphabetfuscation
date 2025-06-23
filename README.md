@@ -12,6 +12,17 @@
 
 </br>
 
+## Available Versions
+
+1. **[main](https://github.com/Maldev-Academy/Alphabetfuscation)** – The default implementation. Converts shellcode into randomized alphabetical letters (A–Z, a–z).
+2. **[entropy-favored](https://github.com/Maldev-Academy/Alphabetfuscation/tree/entropy-favored)** – A variation that *reduces entropy* by:
+   - Limiting output to **uppercase letters only** (A–Z)
+   - Introducing **random spaces** between letters to simulate natural text appearance
+
+The version documented in this *README* refers to the `main` branch.
+
+</br>
+
 
 ## How It Works
 
