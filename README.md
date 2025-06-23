@@ -49,11 +49,17 @@ If `SHUFFLE_ORDER` is defined, the input shellcode is preprocessed by grouping i
 </br>
 
 
-## Output Example
+## Output Examples
 
-Even with the same input shellcode and XOR key, the output changes across runs due to per-byte randomization:
+* The *main* banch output:
 
 ![image](https://github.com/user-attachments/assets/46afcaff-3a53-45aa-afb5-ed0ad03d3065)
+
+</br>
+
+* The *entropy-favored* branch output (truncated due to its size):
+
+![image](https://github.com/user-attachments/assets/f00db3e2-27eb-41f9-be3a-acd5fdd2e3bb)
 
 
 </br>
