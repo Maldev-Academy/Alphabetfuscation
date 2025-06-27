@@ -33,7 +33,7 @@ If `SHUFFLE_ORDER` is defined, the input shellcode is preprocessed by grouping i
 
 **3. Space Injection Mode:**
 
-If `INJECT_SPACES` is defined, the encoded iterates through the encoded shellcode and injects space characters between some alphabetical letters to reduce output uniformity and evade pattern-based detection. This mode uses:
+If `INJECT_SPACES` is defined, we iterate through the encoded shellcode and inject space characters between some alphabetical letters to reduce output uniformity and evade pattern-based detection. This mode uses:
 
 - `MIN_SPACE_INJECT` – Minimum number of letters to emit before a space **might** be inserted.
 - `MAX_SPACE_INJECT` – Maximum number of letters to emit before a new injection decision is made.
