@@ -1,4 +1,4 @@
-## Alphabetfuscation v2: Convert your shellcode into an ASCII string favoring entropy reduction
+## Alphabetfuscation v2: Convert your shellcode into an ASCII string, favoring entropy reduction
 
 </br>
 
